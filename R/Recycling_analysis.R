@@ -319,8 +319,10 @@ median(pct_Heavy2[,2]) # t=5
 a_init <- log(2)/0.7
 b_init <- log(2)/20
 
-HH_fract_3day = .512
+HH_fract_3day = .5#12
 HH_fract_5day = .537
+
+
 
 time_obs <- c(0, 3, 5)
 recycle_value_obs <- c(0,HH_fract_3day,HH_fract_5day)
@@ -352,9 +354,10 @@ plot(t,H_aa_fitted)
 # Adjusting single cell data now that we have gamma(t)
 ############################################################################################################
 
-path_raw <- '/Users/andrewleduc/Desktop/Github/Miceotoptes_single_cell/raw/02_Recycle_searches/'
+path_raw <- path_meta <- paste0(getwd(),'/../data_out_temp/')
 
-path_dat <- '/Users/andrewleduc/Desktop/Github/Miceotoptes_single_cell/dat/'
+
+load(paste0(path_raw,'r1_5day_male.RData'))
 
 
 meta = r1_5day_male@meta.data
@@ -372,6 +375,7 @@ days_5 <- days_5 %>% filter(ID %in% colnames(r1_5day_male@miceotopes@Raw_L))
 
 r1 <- r1_5day_male@miceotopes@Raw_L[,days_3$ID]/(r1_5day_male@miceotopes@Raw_L[,days_3$ID]+r1_5day_male@miceotopes@Raw_H[,days_3$ID])
 r2 <- r1_5day_male@miceotopes@Raw_L[,days_5$ID]/(r1_5day_male@miceotopes@Raw_L[,days_5$ID]+r1_5day_male@miceotopes@Raw_H[,days_5$ID])
+
 
 
 # How many of the data points have ratios greater than the fraction heavy AA?
@@ -393,6 +397,7 @@ adj_r2 <- Recycle_adjust_par_bar(r1_5day_male@miceotopes@Raw_L[,days_5$ID],(r1_5
                                  ,5,c(a_fitted,b_fitted),objective_function)
 adj_r2[adj_r2==10] <- NA
 adj_r2[adj_r2==0] <- NA
+
 
 r1 <- -log(r1[,colnames(r1)])/3
 r2 <- -log(r2[,colnames(r2)])/5
@@ -445,13 +450,59 @@ ggplot(df_corrected_compare, aes(X, Y)) +
   geom_abline(intercept = -.2, slope = slope,color = 'red')+
   scale_x_log10()+scale_y_log10()+
   #coord_cartesian(xlim = c(.05,1),ylim = c(.05,1))+
-  labs(x = "5 day degradation rate, Days^-1",
-       y = "10 day degradation rate, Days^-1") +
+  labs(x = "3 day degradation rate, Days^-1",
+       y = "5 day degradation rate, Days^-1") +
   theme_classic(base_size = 15) +
   theme(
     panel.border = element_rect(colour = "black", fill = NA, size = 1),
     axis.line     = element_blank()
-  )
+  ) + ggtitle('Slope is 0.74, even after recycling correction')
+
+
+#### Try manually correction of data
+
+
+adj_r1_log_tune <- log2(adj_r1)
+adj_r2_log_tune <- log2(adj_r2)
+
+adj_r1_log_tune <- adj_r1_log_tune*slope-0.7917265
+
+df_corrected_compare <- data.frame(
+  logx = rowMeans(adj_r1_log_tune[sect,], na.rm = TRUE),
+  logy = rowMeans(adj_r2_log_tune[sect,], na.rm = TRUE)
+)
+
+mean(df_corrected_compare$logx-df_corrected_compare$logy,na.rm=T)
+
+
+cor(df_corrected_compare$logx,df_corrected_compare$logy,
+    use = 'pairwise.complete.obs') # 0.92 this is great!!
+
+
+df_corrected_compare$X <- 2 ^ df_corrected_compare$logx
+df_corrected_compare$Y <- 2 ^ df_corrected_compare$logy
+
+1/TLS(df_corrected_compare$logx,df_corrected_compare$logy)[[1]]
+
+
+
+
+# Interesting, this is a bit off, it seems a bit better than uncorrected
+# but still, need to think about what to do here
+
+ggplot(df_corrected_compare, aes(X, Y)) +
+  geom_point(alpha = .5, size = 1.2) +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed")+
+  #geom_abline(intercept = -.2, slope = slope,color = 'red')+
+  scale_x_log10()+scale_y_log10()+
+  coord_cartesian(xlim = c(.01,1),ylim = c(.01,1))+
+  labs(x = "3 day degradation rate, Days^-1",
+       y = "5 day degradation rate, Days^-1") +
+  theme_classic(base_size = 15) +
+  theme(
+    panel.border = element_rect(colour = "black", fill = NA, size = 1),
+    axis.line     = element_blank()
+  ) + ggtitle('Regressed out this variance manually (bandaid)')
 
 
 
@@ -475,8 +526,8 @@ ggplot(df_uncor, aes(X, Y)) +
   geom_abline(intercept = -.38, slope = 1/1.6, linetype = "solid",color = 'red')+
   scale_x_log10()+scale_y_log10()+
   #coord_cartesian(xlim = c(.03,.2),ylim = c(.03,.2))+
-  labs(x = "5 day degradation rate, Days^-1",
-       y = "10 day degradation rate, Days^-1") +
+  labs(x = "3 day degradation rate, Days^-1",
+       y = "5 day degradation rate, Days^-1") +
   theme_classic(base_size = 15) +
   theme(
     panel.border = element_rect(colour = "black", fill = NA, size = 1),  # add frame
@@ -487,10 +538,13 @@ ggplot(df_uncor, aes(X, Y)) +
 
 
 #### Compare magnitudes of corrected and uncorrected half life
+adj_r1_tune <- 2^adj_r1_log_tune
+adj_r2_tune <- 2^adj_r2_log_tune
+
 
 df_compare <- data.frame(
-  uncorrected = rowMeans(r1[sect,], na.rm = TRUE),
-  corrected = rowMeans(adj_r1[sect,], na.rm = TRUE)
+  uncorrected = rowMeans(r2[sect,], na.rm = TRUE),
+  corrected = rowMeans(adj_r2_tune[sect,], na.rm = TRUE)
 )
 df_compare <- melt(df_compare)
 
@@ -514,9 +568,14 @@ ggplot(df_compare, aes(y = log(2)/value, fill = variable)) +
 
 #### Save data in QQC objects
 
+adj_r1_tune <- 2^adj_r1_log_tune
+adj_r2_tune <- 2^adj_r2_log_tune
 
-r1_5day_male@miceotopes@Alpha_pep <- adj_r1
+adj_all <- cbind(adj_r1_tune,adj_r2_tune)
 
+adj_all <- adj_all[,colnames(r1_5day_male@miceotopes@Alpha_pep)]
+
+r1_5day_male@miceotopes@Alpha_pep <- adj_all
 
 r1_5day_male <- Miceotope_protein_collapse(r1_5day_male)
 
@@ -526,17 +585,15 @@ r1_5day_male <- Miceotope_protein_collapse(r1_5day_male)
 # Save updated QQC objects
 ##################
 
-save(r1_5day_male, file = paste0(path_dat,'03_QuantQC_objects/r1_5day_male.RData'))
-save(r2_5day_female, file = paste0(path_dat,'03_QuantQC_objects/r2_5day_female.RData'))
-
-
-
+save(r1_5day_male, file = paste0(path_raw,'r1_5day_male.RData'))
 
 
 
 ##################
 # Save Single cell matricies for deg
 ##################
+
+# this is if you want the normalize deg rates and absolute respectively
 
 p1_alpha <-  QuantQC::Normalize_reference_vector(r1_5day_male@miceotopes@Alpha_prot, log = T)
 
@@ -545,10 +602,9 @@ p1_alpha_abs <-  r1_5day_male@miceotopes@Alpha_prot
 
 ### Save deg rates for all IDed proteins
 
+write.csv(p1_alpha,paste0(path_raw,'clearance_relative.csv'))
 
-write.csv(p1_alpha,paste0(path_dat,'04_Gene_X_SingleCell_and_annotations/clearance_relative.csv'))
-
-write.csv(p1_alpha_abs,paste0(path_dat,'04_Gene_X_SingleCell_and_annotations/clearance_absolute.csv'))
+write.csv(p1_alpha_abs,paste0(path_raw,'clearance_absolute.csv'))
 
 
 

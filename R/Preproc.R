@@ -1,30 +1,34 @@
 library(stringr)
+library(QuantQC)
+library(arrow)
+
+
+################
+# For this analysis, it assumes for some of the file paths that you are working our 
+# of the folder this R script is in for the github dir
+################
+
+
+## Making linker, we will need to edit this manually because we also need to add the
+## plate colum (should be 1)
+
+## We also didnt use the best string extract for the well so we missed
+## ones with reinjections, we will need to fix this as well
+
+# Fix to local path
+path_raw <- '/Users/andrewleduc/Desktop/jmod_raw/'
 
 Raw_data_ <- arrow::read_parquet(
-  '/Users/andrewleduc/Downloads/JModPlate1Slide2.parquet'
+  paste0(path_raw,'/JModPlate1Slide2.parquet')
 )
 
-Raw_data_$file_name
+# Extract well from the 
 Raw_data_$well <- str_extract(Raw_data_$file_name, "(?<=_)[^_/]+(?=\\.mzML$)")
-
-Raw_data_ <- Raw_data_ %>% filter(plex_Area > 1)
-hist(log10(Raw_data_$plex_Area))
 
 Raw_data_2 <- Raw_data_ %>% distinct(file_name,.keep_all = T)
 
 Raw_data_2 <- Raw_data_2 %>% dplyr::select(file_name,well)
 write.csv(Raw_data_2,'/Users/andrewleduc/Downloads/linker_jmod.csv')
-
-
-
-jmod <- read.csv('/Users/andrewleduc/Downloads/JModPlate1Slide2.parquet')
-jmod$seq
-
-jmod$Iso <- NA
-jmod$Iso[grepl('K_6C13-6',jmod$seq)] <- 'L'
-jmod$Iso[grepl('K_6C13-0',jmod$seq)] <- 'H'
-
-
 
 
 #### Required libraries
@@ -35,26 +39,9 @@ library(Seurat)
 library(arrow)
 
 
-#### Set paths
-path_raw <- '/Users/andrewleduc/Downloads/'
-path_meta <- '/Users/andrewleduc/Downloads/'
-
-
-columns_to_read <-c('file_name','rt','seq','stripped_seq',
-                    'z','plex_Area','protein','channel')
-
-Raw_data <- arrow::read_parquet(
-  data_path
-)
-
-
-
-Raw_data <- Raw_data %>% dplyr::select(dplyr::all_of(columns_to_read))
-
-Raw_data$seqcharge <- paste0(Raw_data$stripped_seq,Raw_data$z)
-
-Raw_data_2 <- Raw_data %>% filter(seqcharge == 'AAAATETSSVFADPVISK3')
-
+# Fix to local path
+path_raw <- '/Users/andrewleduc/Desktop/jmod_raw/'
+path_meta <- paste0(getwd(),'/../meta_data/')
 
 #### paths for relevant raw and meta data
 data_path <- paste0(path_raw,'JModPlate1Slide2.parquet')
@@ -66,7 +53,6 @@ one <- paste0(path_meta,"sample_1_try2_isolated.xls")
 two <- paste0(path_meta,"sample_2_isolated.xls")
 all_cells <- list(mouse1 = one,
                   mouse2 = two)
-
 
 
 #### Initialize QQC object and convert report table to peptide matrix
@@ -93,7 +79,6 @@ r1_5day_male <- link_cellenONE_Raw(r1_5day_male,all_cells)
 PlotSlideLayout_celltype(r1_5day_male)
 PlotSlideLayout_label(r1_5day_male)
 
-View(r1_5day_male@meta.data)
 
 #### Evaluating single cell quality compared to negative controls
 #### and filtering out of failed cells
@@ -121,9 +106,6 @@ r1_5day_male <- Trim_extra_peptides_miceotopes(r1_5day_male)
 nrow(r1_5day_male@miceotopes@Raw_H)
 
 
-#### Here we save the raw peptide quant table for later modeling (04_Missing_data_proc.R)
-write.csv(r1_5day_male@matricies@peptide,paste0(path_meta,'02_raw_reptide_X_singleCell/r1_peptide.csv'))
-
 
 
 #### Plot cell size vs MS intensity
@@ -135,8 +117,14 @@ PlotCellSizeVsIntensity(r1_5day_male, type = 'sample')
 r1_5day_male@ms_type <- 'miceotopes'
 r1_5day_male <- CollapseToProtein(r1_5day_male, 1,LC_correct = T)
 
+
+
 # Viz for LC related batch effects
 PlotLC_Deviations(r1_5day_male,global_trend = F)
+
+
+
+#write.csv(r1_5day_male@matricies@protein,paste0(getwd(),'/../data_out_temp/R_pipeline_nonorm_protein.csv'))
 
 
 
@@ -157,11 +145,15 @@ median(r1_5day_male@pep.cor[[1]]$Cor)
 #PlotMS1vMS2(r1_5day_male)
 
 
+
 #### KNN protein level imputation
 r1_5day_male <- KNN_impute(r1_5day_male)
 
 
 #### Protein level batch correction for mTRAQ label bias
+
+# Here we employ custom normalization to also control for samples (mice)
+
 #r1_5day_male <- BatchCorrect(r1_5day_male,run = F,labels = T)
 
 cellenONE_meta <- r1_5day_male@meta.data
@@ -181,26 +173,7 @@ r1_5day_male@matricies@protein.imputed <- sc.batch_cor
 r1_5day_male@matricies@protein <- sc.batch_cor_noimp
 
 
-
-
-
-r1_5day_male <- r1_5day_male2
-
-
-# cors <- c()
-# numb_dp <- c()
-# for(i in 1:nrow(r1_5day_male@matricies@protein)){
-#
-#   cors <- c(cors,cor(r1_5day_male@matricies@protein[i,],r1_5day_male@matricies@protein['P12710',],use = 'pairwise.complete.obs'))
-#   numb_dp <- c(numb_dp,sum(is.na(r1_5day_male@matricies@protein[i,])==F))
-#
-# }
-# hist(cors)
-#
-# df <- data.frame(cor=cors,numb_dp = numb_dp,prot = rownames(r1_5day_male@matricies@protein))
-# df <-df %>% filter(numb_dp > 100)
-
-
+## Normalize out biases
 prot_mat <- r1_5day_male@matricies@protein          # rows = proteins, cols = cells/samples
 hb_id    <- "P01942"
 hb       <- as.numeric(prot_mat[hb_id, ])
@@ -294,99 +267,105 @@ PlotUMAP(r1_5day_male, by = 'Condition')
 
 FeatureUMAP(r1_5day_male,prot = 'P33267')
 
-View(r1_5day_male@matricies@peptide_protein_map)
 
 
-hist(r1_5day_male@miceotopes@HovL_pep['QVHPDTGISSK3',intersect(test$ID,colnames(r1_5day_male@miceotopes@HovL_pep))],30)
+# save whole R data file
+save(r1_5day_male, file = paste0(path_meta,"/../data_out_temp/r1_5day_male.RData"))
 
-
-test <- r1_5day_male@meta.data %>% filter(sample == 'mouse1')
-tes2 <- r1_5day_male@meta.data %>% filter(sample == 'mouse2')
-
-
-
-hist(r1_5day_male@miceotopes@HovL_pep['QVHPDTGISSK3',intersect(test$ID,colnames(r1_5day_male@miceotopes@HovL_pep))],30)
-
-hold1 <- intersect(test$ID,colnames(r1_5day_male@miceotopes@HovL_pep))
-hold2 <- intersect(tes2$ID,colnames(r1_5day_male@miceotopes@HovL_pep))
-
-
-sect <- intersect(rownames(r1_5day_male2@miceotopes@Alpha_prot),rownames(r1_5day_male2@matricies@protein_abs))
-
-
-cor(rowMeans(log2(r1_5day_male2@miceotopes@Alpha_prot[sect,]),na.rm=T),
-     rowMeans(log10(r1_5day_male2@matricies@protein_abs[sect,]),na.rm=T),
-    use = 'pairwise.complete.obs',method = 'spearman')
-plot(rowMeans(log2(r1_5day_male2@miceotopes@Alpha_prot[sect,hold1]*5/3),na.rm=T),
-    rowMeans(log2(r1_5day_male2@matricies@protein_abs[sect,hold2]),na.rm=T))
-
-
-
-r1_5day_male <- Miceotope_protein_collapse(r1_5day_male)
-
-r1_5day_male@miceotopes@Alpha_prot[,hold1] <- r1_5day_male@miceotopes@Alpha_prot[,hold1]*5/3
-
-
-plot(rowMeans(log2(r1_5day_male@miceotopes@Alpha_prot[,hold1]),na.rm=T),
-     rowMeans(log2(r1_5day_male@miceotopes@Alpha_prot[,hold2]),na.rm=T))
-abline(a=0,b=1)
-
-sect <- intersect(rownames(r1_5day_male@miceotopes@Alpha_prot),rownames(r1_5day_male@matricies@protein))
-
-
-deg_norm <- QuantQC::normalize(r1_5day_male@miceotopes@Alpha_prot,log = T)
-deg_norm <- r1_5day_male@miceotopes@Alpha_prot
-
-
-
-library(psych)
-cors_deg <- c()
-cors_axis <- c()
-cor_deg_axis <- c()
-numb_dp <- c()
-for(i in 1:length(sect)){
-
-  cors_deg <- c(cors_deg,cor(deg_norm[sect[i],],r1_5day_male2@matricies@protein[sect[i],],use= 'pairwise.complete.obs'))
-  cors_axis <- c(cors_axis,cor(r1_5day_male2@matricies@protein[sect[i],],r1_5day_male2@matricies@protein['Q05421',],use= 'pairwise.complete.obs'))
-
-  cor_deg_axis <- c(cor_deg_axis,cor(deg_norm[sect[i],],r1_5day_male2@matricies@protein['Q05421',],use= 'pairwise.complete.obs'))
-
-  numb_dp <- c(numb_dp,pairwiseCount(deg_norm[sect[i],],r1_5day_male2@matricies@protein[sect[i],])[[1]])
-
-}
-
-df_deg_cor <- data.frame(prot = sect, cor_deg = cors_deg,cor_deg_axis=cor_deg_axis,cors_axis = cors_axis,numb = numb_dp)
-df_deg_cor <- df_deg_cor %>% filter(numb > 50)
-
-
-
-## Use markers to make pseudo spatial axis, look over Nature article to get more markers for this
-
-## Order cells by axis values
-
-## Plot Abundance and deg rate vs Axis
-
-## Try to denoise the spatial axis by binning cells
-
-
-
-## Compare to mRNA from nature paper
-
-## Bin these comparisons by both absolute half life of protein, and cor to relative half life
-
-
-
-## functional groupings of proteins
+write.csv(r1_5day_male@matricies@protein,paste0(getwd(),'/../data_out_temp/R_pipeline_protein.csv'))
+write.csv(r1_5day_male@miceotopes@Alpha_pep,paste0(getwd(),'/../data_out_temp/R_pipeline_alpha_pep.csv'))
 
 
 
 
-QuantQC::Mice_DimPlot_turnover(r1_5day_male,reuct = 'UMAP',by = 'Total')
 
-Mice_DimPlot_turnover()
-
-r1_5day_male@meta.data
-
+# test <- r1_5day_male@meta.data %>% filter(sample == 'mouse1')
+# tes2 <- r1_5day_male@meta.data %>% filter(sample == 'mouse2')
+# 
+# 
+# 
+# hist(r1_5day_male@miceotopes@HovL_pep['QVHPDTGISSK3',intersect(test$ID,colnames(r1_5day_male@miceotopes@HovL_pep))],30)
+# 
+# hold1 <- intersect(test$ID,colnames(r1_5day_male@miceotopes@HovL_pep))
+# hold2 <- intersect(tes2$ID,colnames(r1_5day_male@miceotopes@HovL_pep))
+# 
+# 
+# sect <- intersect(rownames(r1_5day_male2@miceotopes@Alpha_prot),rownames(r1_5day_male2@matricies@protein_abs))
+# 
+# 
+# cor(rowMeans(log2(r1_5day_male2@miceotopes@Alpha_prot[sect,]),na.rm=T),
+#      rowMeans(log10(r1_5day_male2@matricies@protein_abs[sect,]),na.rm=T),
+#     use = 'pairwise.complete.obs',method = 'spearman')
+# plot(rowMeans(log2(r1_5day_male2@miceotopes@Alpha_prot[sect,hold1]*5/3),na.rm=T),
+#     rowMeans(log2(r1_5day_male2@matricies@protein_abs[sect,hold2]),na.rm=T))
+# 
+# 
+# 
+# r1_5day_male <- Miceotope_protein_collapse(r1_5day_male)
+# 
+# r1_5day_male@miceotopes@Alpha_prot[,hold1] <- r1_5day_male@miceotopes@Alpha_prot[,hold1]*5/3
+# 
+# 
+# plot(rowMeans(log2(r1_5day_male@miceotopes@Alpha_prot[,hold1]),na.rm=T),
+#      rowMeans(log2(r1_5day_male@miceotopes@Alpha_prot[,hold2]),na.rm=T))
+# abline(a=0,b=1)
+# 
+# sect <- intersect(rownames(r1_5day_male@miceotopes@Alpha_prot),rownames(r1_5day_male@matricies@protein))
+# 
+# 
+# deg_norm <- QuantQC::normalize(r1_5day_male@miceotopes@Alpha_prot,log = T)
+# deg_norm <- r1_5day_male@miceotopes@Alpha_prot
+# 
+# 
+# 
+# library(psych)
+# cors_deg <- c()
+# cors_axis <- c()
+# cor_deg_axis <- c()
+# numb_dp <- c()
+# for(i in 1:length(sect)){
+# 
+#   cors_deg <- c(cors_deg,cor(deg_norm[sect[i],],r1_5day_male2@matricies@protein[sect[i],],use= 'pairwise.complete.obs'))
+#   cors_axis <- c(cors_axis,cor(r1_5day_male2@matricies@protein[sect[i],],r1_5day_male2@matricies@protein['Q05421',],use= 'pairwise.complete.obs'))
+# 
+#   cor_deg_axis <- c(cor_deg_axis,cor(deg_norm[sect[i],],r1_5day_male2@matricies@protein['Q05421',],use= 'pairwise.complete.obs'))
+# 
+#   numb_dp <- c(numb_dp,pairwiseCount(deg_norm[sect[i],],r1_5day_male2@matricies@protein[sect[i],])[[1]])
+# 
+# }
+# 
+# df_deg_cor <- data.frame(prot = sect, cor_deg = cors_deg,cor_deg_axis=cor_deg_axis,cors_axis = cors_axis,numb = numb_dp)
+# df_deg_cor <- df_deg_cor %>% filter(numb > 50)
+# 
+# 
+# 
+# ## Use markers to make pseudo spatial axis, look over Nature article to get more markers for this
+# 
+# ## Order cells by axis values
+# 
+# ## Plot Abundance and deg rate vs Axis
+# 
+# ## Try to denoise the spatial axis by binning cells
+# 
+# 
+# 
+# ## Compare to mRNA from nature paper
+# 
+# ## Bin these comparisons by both absolute half life of protein, and cor to relative half life
+# 
+# 
+# 
+# ## functional groupings of proteins
+# 
+# 
+# 
+# 
+# QuantQC::Mice_DimPlot_turnover(r1_5day_male,reuct = 'UMAP',by = 'Total')
+# 
+# Mice_DimPlot_turnover()
+# 
+# r1_5day_male@meta.data
+# 
 
 
 
